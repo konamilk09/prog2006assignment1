@@ -5,8 +5,8 @@
 * Submission Deadline: **April 6, 23:59**
 * Peer-review Deadline: **April 16, 23:59**
 * Language: Rust or Haskell
-* Submission must be done through [the submission system](https://10.212.175.82)
-   - https://10.212.175.82
+* Submission must be done through [the submission system](http://10.212.175.82)
+   - http://10.212.175.82
    - Hash: `cg49jme8eh9dbc0db0sg`
 
 ## Important
