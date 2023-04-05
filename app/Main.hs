@@ -8,4 +8,4 @@ import qualified Lib
 main :: IO ()
 main = C.withSDL $ C.withSDLImage $ do
   C.setHintQuality
-  C.withWindow "Go game" (640, 440) $ Lib.mainApp
+  C.withWindow "Go game" (640, 480) $ Lib.mainApp
