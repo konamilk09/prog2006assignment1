@@ -9,8 +9,8 @@ version:        0.1.0.0
 description:    Please see the README on GitHub at <https://github.com/marni/gogame#readme>
 homepage:       https://github.com/marni/gogame#readme
 bug-reports:    https://github.com/marni/gogame/issues
-author:         Mariusz Nowostawski
-maintainer:     mariusz.nowostawski@ntnu.no
+author:         Guangyi Zhu
+maintainer:     guangyiz@ntnu.no
 copyright:      2023 (C) Nowostawski
 license:        BSD3
 license-file:   LICENSE
@@ -24,6 +24,7 @@ source-repository head
 
 library
   exposed-modules:
+      Common
       Lib
   other-modules:
       Paths_gogame
@@ -32,6 +33,9 @@ library
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints
   build-depends:
       base >=4.7 && <5
+     , sdl2
+     , text
+     , sdl2-image
   default-language: Haskell2010
 
 executable gogame-exe

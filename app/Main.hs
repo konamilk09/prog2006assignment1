@@ -1,6 +1,11 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module Main (main) where
 
-import Lib
+import qualified Common as C
+import qualified Lib
 
 main :: IO ()
-main = someFunc
+main = C.withSDL $ C.withSDLImage $ do
+  C.setHintQuality
+  C.withWindow "Go game" (640, 440) $ Lib.mainApp
