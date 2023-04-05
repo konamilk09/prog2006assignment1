@@ -10,6 +10,9 @@ import Foreign.C.Types
 
 type Coord = (CInt, CInt)
 
+radius :: CInt
+radius = 23 :: CInt
+
 -- Intents
 data Intent
   = Idle
@@ -20,23 +23,31 @@ data Intent
 
 data Stone = Stone
   { pos :: Coord
-  , radius :: CInt
   , sticky :: Bool -- if the mouse is having the stone
   , captured :: Coord -- distance from the mouse to the stone
-  } deriving (Show)
+  }
+
+-- bowl of the stones which we take the stones from
+data Bowls = Bowls
+  { black :: Stone
+  , white :: Stone
+  }
 
 -- The world
 data World = World
   { exiting :: Bool
+  , bowls :: Bowls
   , stones :: [Stone]
   }
 
 initialWorld :: World
 initialWorld = World
   { exiting = False
-  , stones = [ Stone { pos = (40, 40), radius = 23, sticky = False, captured = (0,0)}
-              , Stone { pos = (40, 90), radius = 23, sticky = False, captured = (0,0)}
-              , Stone { pos = (530, 65), radius = 23, sticky = False, captured = (0,0)}
+  , bowls = Bowls { black = Stone { pos = (530, 65), sticky = False, captured = (0,0) }
+                  , white = Stone { pos = (530, 115), sticky = False, captured = (0,0) }
+                  }
+  , stones = [ Stone { pos = (40, 40), sticky = False, captured = (0,0)}
+              , Stone { pos = (40, 90), sticky = False, captured = (0,0)}
               ]
   }
 
@@ -126,7 +137,7 @@ pressMouse (x, y) w =
         | otherwise = s : updateStones ss
         where (sx, sy) = pos s
               distance = sqrt (fromIntegral $ (x-sx)^(2::Int) + (y-sy)^(2::Int))
-              radius' = fromIntegral (radius s)::Double
+              radius' = fromIntegral radius::Double
   in w { stones = updateStones $ stones w }
 
 -- drop all the stones
@@ -158,6 +169,7 @@ renderWorld r t d w = do
   SDL.clear r
   drawBackground r (head t) d
   drawBoard r
+  drawBowls r (tail t) w
   drawStones r (last t) w
   SDL.present r
 
@@ -191,11 +203,21 @@ drawBoard r = do
 
   loop 0 0
 
+-- Draw bowls
+drawBowls :: SDL.Renderer -> [(SDL.Texture, SDL.TextureInfo)] -> World -> IO ()
+drawBowls r t w =
+  let createStone :: Stone -> SDL.Rectangle CInt
+      createStone s = C.mkRect (x' - radius) (y' - radius) (2 * radius) (2 * radius)
+                      where (x', y') = pos s
+  in do
+    SDL.copy r (fst $ head t) Nothing . Just . createStone $ black $ bowls w
+    SDL.copy r (fst $ last t) Nothing . Just . createStone $ white $ bowls w
+
 -- Draw stones
 drawStones :: SDL.Renderer -> (SDL.Texture, SDL.TextureInfo) -> World -> IO ()
 drawStones r (t, _) w =
   let createStone :: Stone -> SDL.Rectangle CInt
       createStone c = C.mkRect (x' - r') (y' - r') (2 * r') (2 * r')
-                      where r' = radius c; (x', y') = pos c
+                      where r' = radius; (x', y') = pos c
   in mapM_ (SDL.copy r t Nothing . Just . createStone) (stones w)
 
