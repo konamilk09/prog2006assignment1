@@ -9,6 +9,7 @@ import Data.Foldable          (foldl')
 import Foreign.C.Types
 
 type Coord = (CInt, CInt)
+type Position = (CInt, CInt)
 
 radius :: CInt
 radius = 23 :: CInt
@@ -22,15 +23,21 @@ data Intent
   | Release Coord
 
 data Stone = Stone
-  { pos :: Coord
+  { pos :: Position
+  , coord :: Coord
   , sticky :: Bool -- if the mouse is having the stone
   , captured :: Coord -- distance from the mouse to the stone
   }
 
+data Bowl = Bowl
+  { coordB :: Coord
+  , stickyB :: Bool -- if the mouse is having the stone
+  }
+
 -- bowl of the stones which we take the stones from
 data Bowls = Bowls
-  { black :: Stone
-  , white :: Stone
+  { black :: Bowl
+  , white :: Bowl
   }
 
 -- The world
@@ -43,11 +50,11 @@ data World = World
 initialWorld :: World
 initialWorld = World
   { exiting = False
-  , bowls = Bowls { black = Stone { pos = (530, 65), sticky = False, captured = (0,0) }
-                  , white = Stone { pos = (530, 115), sticky = False, captured = (0,0) }
+  , bowls = Bowls { black = Bowl { coordB = (530, 65), stickyB = False }
+                  , white = Bowl { coordB = (530, 115), stickyB = False }
                   }
-  , stones = [ Stone { pos = (40, 40), sticky = False, captured = (0,0)}
-              , Stone { pos = (40, 90), sticky = False, captured = (0,0)}
+  , stones = [ Stone { pos = (0, 0), coord = (40, 40), sticky = False, captured = (0,0)}
+              , Stone { pos = (0, 1), coord = (40, 90), sticky = False, captured = (0,0)}
               ]
   }
 
@@ -126,33 +133,45 @@ applyIntent Idle        = idleWorld
 quitWorld :: World -> World
 quitWorld w = w { exiting = True }
 
--- takes the position of the mouse, update the status of a stone if the mouse is on the stone
+-- calculate real position from coordinate index
+-- TODO: assert (x,y) is in the range
+calculatePos :: Position -> Coord
+calculatePos (x,y) = (40+x*50, 40+y*50)
+
+-- takes the position of the mouse, updates the status of a stone if the mouse is on the stone
+-- doesn't change the position of the stone
 pressMouse :: Coord -> World -> World
 pressMouse (x, y) w =
   let updateStones :: [Stone] -> [Stone]
       updateStones [] = []
       updateStones (s:ss)
         -- if the mouse is on a stone, update the stone status
-        | distance < radius' = s { sticky = True, captured = (x-sx, y-sy) } : ss
+        | distance < radius' = s { coord = (sx,sy), sticky = True, captured = (x-sx, y-sy) } : ss
         | otherwise = s : updateStones ss
-        where (sx, sy) = pos s
+        where (sx, sy) = calculatePos $ pos s
               distance = sqrt (fromIntegral $ (x-sx)^(2::Int) + (y-sy)^(2::Int))
               radius' = fromIntegral radius::Double
   in w { stones = updateStones $ stones w }
 
 -- drop all the stones
--- TODO: make sure each stone is on a cross
+-- the stones will be on the nearest cross
 releaseMouse :: Coord -> World -> World
-releaseMouse _ w = w { stones = map (\s -> s { sticky = False}) (stones w) }
+releaseMouse _ w =
+  let releaseStone :: Stone -> Stone
+      releaseStone s = s { pos = ((cx-15) `div` 50, (cy-15) `div` 50)
+                         , sticky = False }
+                       where (cx,cy) = coord s
+  in w { stones = map releaseStone (stones w) }
+
 
 -- takes the position of the mouse,
--- updates the stone if is sticky
+-- updates the stone if it is sticky: move the position following the mouse
 moveObject :: Coord -> World -> World
 moveObject (x,y) w =
   let updatePos :: [Stone] -> [Stone]
       updatePos [] = []
       updatePos (s:ss) = if sticky s
-                            then s { pos = (x - fst (captured s), y - snd (captured s)) } : updatePos ss
+                            then s { coord = (x - fst (captured s), y - snd (captured s)) } : updatePos ss
                             else s : updatePos ss
   in w { stones = updatePos $ stones w }
 
@@ -200,24 +219,26 @@ drawBoard r = do
             | otherwise = do
                 SDL.drawRect r (Just $ C.mkRect (40+x*50) (40+y*50) 51 51)
                 loop (x + 1) y
-
   loop 0 0
 
 -- Draw bowls
 drawBowls :: SDL.Renderer -> [(SDL.Texture, SDL.TextureInfo)] -> World -> IO ()
 drawBowls r t w =
-  let createStone :: Stone -> SDL.Rectangle CInt
-      createStone s = C.mkRect (x' - radius) (y' - radius) (2 * radius) (2 * radius)
-                      where (x', y') = pos s
+  let createBowl :: Bowl -> SDL.Rectangle CInt
+      createBowl b = C.mkRect (x' - radius) (y' - radius) (2 * radius) (2 * radius)
+                      where (x', y') = coordB b
   in do
-    SDL.copy r (fst $ head t) Nothing . Just . createStone $ black $ bowls w
-    SDL.copy r (fst $ last t) Nothing . Just . createStone $ white $ bowls w
+    SDL.copy r (fst $ head t) Nothing . Just . createBowl $ black $ bowls w
+    SDL.copy r (fst $ last t) Nothing . Just . createBowl $ white $ bowls w
 
 -- Draw stones
 drawStones :: SDL.Renderer -> (SDL.Texture, SDL.TextureInfo) -> World -> IO ()
 drawStones r (t, _) w =
   let createStone :: Stone -> SDL.Rectangle CInt
-      createStone c = C.mkRect (x' - r') (y' - r') (2 * r') (2 * r')
-                      where r' = radius; (x', y') = pos c
+      createStone Stone { pos = (px,py), coord = (cx,cy), sticky = sti, captured = _ } =
+        if sti
+          then C.mkRect (cx - radius) (cy - radius) (2 * radius) (2 * radius)
+          else C.mkRect (px' - radius) (py' - radius) (2 * radius) (2 * radius)
+          where (px',py') = calculatePos (px,py)
   in mapM_ (SDL.copy r t Nothing . Just . createStone) (stones w)
 
