@@ -211,11 +211,60 @@ seekBoard (World _ _ _ m _) p = case Map.lookup p m of
 -- checks if the move of given 'Point' to given 'Stone' is valid or not
 -- TODO : check if the stone is trapped
 validMove :: World -> Position -> StoneState -> Bool
-validMove w@(World _ _ stones board lastMove ) p@(x,y) side
+validMove w@(World _ _ stone _ _) p@(x,y) st
   | x < 0 || x > 8 || y < 0 || y > 8 = False -- if outside the board
   | seekBoard w p /= Empty = False -- if point is not empty
-  | stones == [] = False
-  | otherwise = True
+  | stone == [] = False -- if the mouse was not clicked on the correct bowl
+  | not $ ifTrapped vWorld p st = True -- if the point is not trapped
+  -- If point is trapped then check if on placing the stone whether opposites stone sare captured or not
+  | (seekBoard w up == os) && (ifTrapped vWorld up os) = True
+  | (seekBoard w down == os) && (ifTrapped vWorld down os) = True
+  | (seekBoard w left == os) && (ifTrapped vWorld left os) = True
+  | (seekBoard w right == os) && (ifTrapped vWorld right os) = True
+  | otherwise = False
+  where vWorld = vMove w p st
+        os = getOppositeStone st
+        up = (x,y+1)
+        down = (x,y-1)
+        right = (x+1,y)
+        left = (x-1,y)
+
+-- assume the world after playing the move
+vMove :: World -> Position -> StoneState -> World
+vMove (World _ _ _ b _) point st = World {
+    exiting = False
+  , bowls = Bowls { black = Bowl { coordB = (530, 65), stickyB = False }
+                  , white = Bowl { coordB = (530, 115), stickyB = False }
+                  }
+  , stones = []
+  , board = addPiece b point st
+  , lastMove = StoneMove point st
+}
+
+-- if the list from findTrappedGroup has Nothing, the group is not trapped
+ifTrapped :: World -> Position -> StoneState -> Bool
+ifTrapped w p st = not $ elem Nothing $ findTrappedGroup w p st []
+
+-- finds trapped group of stones in the world
+-- starting from the given point and going in all directions, returns if the group that
+-- the starting point belong to is trapped.
+findTrappedGroup :: World -> Position -> StoneState -> [Maybe Position] -> [Maybe Position]
+findTrappedGroup w@(World _ _ _ _ _) p@(x,y) st seenPoints
+    | x < 0 || x > 8 || y < 0 || y > 8  = seenPoints -- if the point is out of bound
+    | elem (pure p) seenPoints = seenPoints -- if already checked the point
+    | seekBoard w p == Empty = Nothing:seenPoints -- if the point is Empty->this group is not trapped
+    | seekBoard w p == Ko = Nothing:seenPoints -- if the point is Ko
+    | seekBoard w p /= st = seenPoints -- if the point has different type of stone
+    | otherwise = findTrappedGroup w left st
+        $ findTrappedGroup w right st
+        $ findTrappedGroup w up st
+        $ findTrappedGroup w down st ((pure p):seenPoints)
+    where up = (x,y+1)
+          down = (x,y-1)
+          right = (x+1,y)
+          left = (x-1,y)
+
+
 
 -- drop all the stones
 -- the stones will be on the nearest cross
