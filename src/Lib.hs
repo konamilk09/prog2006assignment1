@@ -6,6 +6,7 @@ import qualified SDL
 import qualified Common as C
 
 import qualified Data.Map as Map
+import Data.List (nub)
 import Data.Foldable          (foldl')
 import Foreign.C.Types
 
@@ -264,7 +265,47 @@ findTrappedGroup w@(World _ _ _ _ _) p@(x,y) st seenPoints
           right = (x+1,y)
           left = (x-1,y)
 
+-- removes group from the point
+removeGroups :: World -> Position -> StoneState -> World
+removeGroups w@(World _ _ _ _ _) (x,y) st
+    -- If number of points captured is one then check if Ko is formed and add Ko to the board if neccesary
+--    | length pointsToBeRemoved == 1 && isKo = updateScore (addKo (removeStones game pointsToBeRemoved) (pointsToBeRemoved !! 0)) 1 stone'
+    -- TODO : updateScore
+    = removeStones w pointsToBeRemoved
+--    | otherwise = updateScore (removeStones game pointsToBeRemoved) (length pointsToBeRemoved) stone'
+    where (up, down, left, right) = ((x,y+1), (x,y-1), (x-1,y), (x+1,y))
+          removeUp = removablePoints up st w
+          removeDown = removablePoints down st w
+          removeLeft = removablePoints left st w
+          removeRight = removablePoints right st w
+          pointsToBeRemoved = nub (removeUp ++ removeDown ++ removeLeft ++ removeRight)
+--          point' = if length removeUp == 1 then up else if length removeDown == 1 then down else if length removeLeft == 1 then left else right
+--          (up', down', left', right') = getAdj point'
+--          stone' = getOppositeStone stone
+--          isKo = length ((removeDead up' stone' game) ++ (removeDead down' stone' game) ++ (removeDead left' stone' game) ++ (removeDead right' stone' game)) == 1
 
+-- returns a list of points in the group if the group is trapped
+removablePoints :: Position -> StoneState -> World -> [Maybe Position]
+removablePoints p st w
+  | ifTrapped w p st = findTrappedGroup w p st []
+  | otherwise = []
+
+-- removes the stone from given point in the map
+removePiece :: (Map.Map Position StoneState) -> Position -> (Map.Map Position StoneState)
+removePiece m position = addPiece m position Empty
+
+-- given a list of points which are candidate of being removed
+-- remove the stones if it is dead group
+removeStones :: World -> [Maybe Position] -> World
+removeStones w@(World _ _ _ _ _) [] = w
+removeStones w@(World _ _ _ _ _) (Nothing:_) = w
+removeStones (World e bowl stone m st) ((Just p):xs) = removeStones (World e bowl stone (removePiece m p) st) xs
+
+-- adds a stone to the point
+-- After playing the move, removes the captured points of the opposite stone if present
+playMove :: World -> Position -> StoneState -> World
+playMove w@(World _ _ _ b _) p st = removeGroups w {stones = [], board = addPiece b p st, lastMove = StoneMove p st} p os
+  where os = getOppositeStone st
 
 -- drop all the stones
 -- the stones will be on the nearest cross
@@ -273,8 +314,7 @@ releaseMouse (x,y) w =
   if validMove w p side then newWorld else noMove
     where p = ((x-15) `div` 50, (y-15) `div` 50)
           side = getSideFromLastMove (lastMove w)
-          b = board w
-          newWorld = w { stones = [], board = addPiece b p side , lastMove = StoneMove p side}
+          newWorld = playMove w p side
           noMove = w { stones = [] }
 
 -- | 'addPiece' adds a element of type t to map
@@ -282,10 +322,6 @@ addPiece :: (Map.Map Position s) -> Position -> s -> (Map.Map Position s)
 addPiece m point@(px,py) stone = if 0<=px && px<9 && 0<=py && py<9
                            then Map.insert point stone (Map.delete point m)
                            else m
-
--- removes the stone from given point in the map
-removePiece :: (Map.Map Position StoneState) -> Position -> (Map.Map Position StoneState)
-removePiece m position = addPiece m position Empty
 
 -- do nothing
 idleWorld :: World -> World
