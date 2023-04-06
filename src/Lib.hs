@@ -23,7 +23,8 @@ data Intent
   | Release Coord
 
 data Stone = Stone
-  { pos :: Position
+  { color :: Bool -- True is black, False is white
+  , pos :: Position
   , coord :: Coord
   , sticky :: Bool -- if the mouse is having the stone
   , captured :: Coord -- distance from the mouse to the stone
@@ -45,6 +46,8 @@ data World = World
   { exiting :: Bool
   , bowls :: Bowls
   , stones :: [Stone]
+  , turn :: Bool -- true is black, false is white
+  , board :: [Bool] -- true if you can place the stone, vice versa
   }
 
 initialWorld :: World
@@ -53,9 +56,11 @@ initialWorld = World
   , bowls = Bowls { black = Bowl { coordB = (530, 65), stickyB = False }
                   , white = Bowl { coordB = (530, 115), stickyB = False }
                   }
-  , stones = [ Stone { pos = (0, 0), coord = (40, 40), sticky = False, captured = (0,0)}
-              , Stone { pos = (0, 1), coord = (40, 90), sticky = False, captured = (0,0)}
+  , stones = [ Stone { color = True, pos = (0, 0), coord = (40, 40), sticky = False, captured = (0,0) }
+              , Stone { color = False, pos = (0, 1), coord = (40, 40+50*1), sticky = False, captured = (0,0) }
               ]
+  , turn = True
+  , board = [True | _ <- ([1..81] :: [Integer]) ]
   }
 
 -- Main entry to our application logic. It takes the handle to the SDL Window,
@@ -142,27 +147,23 @@ calculatePos (x,y) = (40+x*50, 40+y*50)
 -- doesn't change the position of the stone
 pressMouse :: Coord -> World -> World
 pressMouse (x, y) w =
+  -- takes the current stones, adds a new stone to the list if the mouse is on the bowl, captures the new stone
   let updateStones :: [Stone] -> [Stone]
-      updateStones [] = []
-      updateStones (s:ss)
-        -- if the mouse is on a stone, update the stone status
-        | distance < radius' = s { coord = (sx,sy), sticky = True, captured = (x-sx, y-sy) } : ss
-        | otherwise = s : updateStones ss
-        where (sx, sy) = calculatePos $ pos s
-              distance = sqrt (fromIntegral $ (x-sx)^(2::Int) + (y-sy)^(2::Int))
+      updateStones ss
+        -- if the mouse is on the bowl of the turn
+        -- the pos field doesn't matter because it uses coord to place the stone,
+        -- it will set pos when the mouse is released
+        | (turn w) && distanceB < radius' =
+          Stone { color = True, pos = (0,0), coord = (bx,by), sticky = True, captured = (x-bx, y-by) } : ss
+        | (not (turn w)) && distanceW < radius' =
+          Stone { color = False, pos = (0,0), coord = (wx,wy), sticky = True, captured = (x-wx, y-wy) } : ss
+        | otherwise = ss
+        where (bx, by) = coordB . black $ bowls w
+              (wx, wy) = coordB . white $ bowls w
+              distanceB = sqrt (fromIntegral $ (x-bx)^(2::Int) + (y-by)^(2::Int))
+              distanceW = sqrt (fromIntegral $ (x-wx)^(2::Int) + (y-wy)^(2::Int))
               radius' = fromIntegral radius::Double
   in w { stones = updateStones $ stones w }
-
--- drop all the stones
--- the stones will be on the nearest cross
-releaseMouse :: Coord -> World -> World
-releaseMouse _ w =
-  let releaseStone :: Stone -> Stone
-      releaseStone s = s { pos = ((cx-15) `div` 50, (cy-15) `div` 50)
-                         , sticky = False }
-                       where (cx,cy) = coord s
-  in w { stones = map releaseStone (stones w) }
-
 
 -- takes the position of the mouse,
 -- updates the stone if it is sticky: move the position following the mouse
@@ -174,6 +175,18 @@ moveObject (x,y) w =
                             then s { coord = (x - fst (captured s), y - snd (captured s)) } : updatePos ss
                             else s : updatePos ss
   in w { stones = updatePos $ stones w }
+
+-- drop all the stones
+-- the stones will be on the nearest cross
+-- TODO: turn changes each click, it does not consider if the mouse clicked on the bowl
+releaseMouse :: Coord -> World -> World
+releaseMouse _ w =
+  let releaseStone :: Stone -> Stone
+      releaseStone s = s { pos = ((cx-15) `div` 50, (cy-15) `div` 50)
+                         , sticky = False }
+                       where (cx,cy) = coord s
+  in w { stones = map releaseStone (stones w), turn = not (turn w) }
+
 
 -- do nothing
 idleWorld :: World -> World
@@ -189,7 +202,7 @@ renderWorld r t d w = do
   drawBackground r (head t) d
   drawBoard r
   drawBowls r (tail t) w
-  drawStones r (last t) w
+  drawStones r (tail t) w
   SDL.present r
 
 -- The actual method for drawing that is used by the rendering method above.
@@ -232,13 +245,18 @@ drawBowls r t w =
     SDL.copy r (fst $ last t) Nothing . Just . createBowl $ white $ bowls w
 
 -- Draw stones
-drawStones :: SDL.Renderer -> (SDL.Texture, SDL.TextureInfo) -> World -> IO ()
-drawStones r (t, _) w =
+drawStones :: SDL.Renderer -> [(SDL.Texture, SDL.TextureInfo)] -> World -> IO ()
+drawStones r t w =
   let createStone :: Stone -> SDL.Rectangle CInt
       createStone Stone { pos = (px,py), coord = (cx,cy), sticky = sti, captured = _ } =
         if sti
           then C.mkRect (cx - radius) (cy - radius) (2 * radius) (2 * radius)
           else C.mkRect (px' - radius) (py' - radius) (2 * radius) (2 * radius)
           where (px',py') = calculatePos (px,py)
-  in mapM_ (SDL.copy r t Nothing . Just . createStone) (stones w)
+  in do
+    -- if color is Black
+    mapM_ (SDL.copy r (fst $ head t) Nothing . Just . createStone) $ filter (\s -> color s == True) (stones w)
+    -- if color is White
+    mapM_ (SDL.copy r (fst $ last t) Nothing . Just . createStone) $ filter (\s -> color s == False) (stones w)
+
 
