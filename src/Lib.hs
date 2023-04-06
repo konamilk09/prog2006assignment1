@@ -60,6 +60,8 @@ data World = World
   , stones :: [Stone]
   , board :: Map.Map Position StoneState
   , lastMove :: StoneMove
+  , scoreBlack :: Int
+  , scoreWhite :: Int
   } deriving (Eq)
 
 initialWorld :: World
@@ -71,6 +73,8 @@ initialWorld = World
   , stones = []
   , board = addPieces (Map.empty) points
   , lastMove = StoneMove (-1,-1) White
+  , scoreBlack = 0
+  , scoreWhite = 0
   } where points = [(x,y) | x <- [0..8], y <- [0..8]]
 
 addPieces :: (Map.Map Position StoneState) -> [Position] -> (Map.Map Position StoneState)
@@ -107,6 +111,7 @@ mainApp win =
 
       -- when we are done with the renderer, we need to clean up
       mapM_ (SDL.destroyTexture . fst) t
+
 
 -- Given a list of events, update the world
 updateWorld :: World -> [SDL.Event] -> World
@@ -163,7 +168,7 @@ pressMouse :: Coord -> World -> World
 pressMouse (x, y) w =
   -- takes the current stones, adds a new stone to the list if the mouse is on the bowl, captures the new stone
   let newStone :: World -> [Stone]
-      newStone (World _ bowl _ _ lm)
+      newStone (World _ bowl _ _ lm _ _)
         -- if the mouse is on the bowl of the turn
         -- the pos field doesn't matter because it uses coord to place the stone,
         -- it will set pos when the mouse is released
@@ -204,7 +209,7 @@ getSideFromLastMove (Pass st) = getOppositeStone st
 
 -- takes world and position returns the StoneState
 seekBoard :: World -> Position -> StoneState
-seekBoard (World _ _ _ m _) p = case Map.lookup p m of
+seekBoard (World _ _ _ m _ _ _) p = case Map.lookup p m of
     Just stoneState -> stoneState
     Nothing -> Empty
 
@@ -212,7 +217,7 @@ seekBoard (World _ _ _ m _) p = case Map.lookup p m of
 -- checks if the move of given 'Point' to given 'Stone' is valid or not
 -- TODO : check if the stone is trapped
 validMove :: World -> Position -> StoneState -> Bool
-validMove w@(World _ _ stone _ _) p@(x,y) st
+validMove w@(World _ _ stone _ _ _ _) p@(x,y) st
   | x < 0 || x > 8 || y < 0 || y > 8 = False -- if outside the board
   | seekBoard w p /= Empty = False -- if point is not empty
   | stone == [] = False -- if the mouse was not clicked on the correct bowl
@@ -232,7 +237,7 @@ validMove w@(World _ _ stone _ _) p@(x,y) st
 
 -- assume the world after playing the move
 vMove :: World -> Position -> StoneState -> World
-vMove (World _ _ _ b _) point st = World {
+vMove (World _ _ _ b _ _ _) point st = World {
     exiting = False
   , bowls = Bowls { black = Bowl { coordB = (530, 65), stickyB = False }
                   , white = Bowl { coordB = (530, 115), stickyB = False }
@@ -240,6 +245,8 @@ vMove (World _ _ _ b _) point st = World {
   , stones = []
   , board = addPiece b point st
   , lastMove = StoneMove point st
+  , scoreBlack = 0
+  , scoreWhite = 0
 }
 
 -- if the list from findTrappedGroup has Nothing, the group is not trapped
@@ -250,7 +257,7 @@ ifTrapped w p st = not $ elem Nothing $ findTrappedGroup w p st []
 -- starting from the given point and going in all directions, returns if the group that
 -- the starting point belong to is trapped.
 findTrappedGroup :: World -> Position -> StoneState -> [Maybe Position] -> [Maybe Position]
-findTrappedGroup w@(World _ _ _ _ _) p@(x,y) st seenPoints
+findTrappedGroup w p@(x,y) st seenPoints
     | x < 0 || x > 8 || y < 0 || y > 8  = seenPoints -- if the point is out of bound
     | elem (pure p) seenPoints = seenPoints -- if already checked the point
     | seekBoard w p == Empty = Nothing:seenPoints -- if the point is Empty->this group is not trapped
@@ -265,24 +272,41 @@ findTrappedGroup w@(World _ _ _ _ _) p@(x,y) st seenPoints
           right = (x+1,y)
           left = (x-1,y)
 
+-- updates the score of the stone
+updateScore :: World -> Int -> StoneState -> World
+updateScore w@(World _ _ _ _ _ sb sw) score st
+    | st == Black = w { scoreBlack = sb + score }
+    | otherwise = w { scoreWhite = sw + score }
+
+-- adds 'Ko' to the game at given point
+addKo :: World -> (Maybe Position) -> World
+addKo w@(World _ _ _ m _ _ _) (Just p) = w { board = (addPiece m p Ko) }
+addKo w Nothing = w
+
 -- removes group from the point
 removeGroups :: World -> Position -> StoneState -> World
-removeGroups w@(World _ _ _ _ _) (x,y) st
+removeGroups w (x,y) st
     -- If number of points captured is one then check if Ko is formed and add Ko to the board if neccesary
---    | length pointsToBeRemoved == 1 && isKo = updateScore (addKo (removeStones game pointsToBeRemoved) (pointsToBeRemoved !! 0)) 1 stone'
+    | len == 1 && isKo = updateScore (addKo (removeStones w pointsToBeRemoved) (pointsToBeRemoved !! 0)) 1 os
     -- TODO : updateScore
-    = removeStones w pointsToBeRemoved
---    | otherwise = updateScore (removeStones game pointsToBeRemoved) (length pointsToBeRemoved) stone'
+    | otherwise =  updateScore (removeStones w pointsToBeRemoved) len os
     where (up, down, left, right) = ((x,y+1), (x,y-1), (x-1,y), (x+1,y))
           removeUp = removablePoints up st w
           removeDown = removablePoints down st w
           removeLeft = removablePoints left st w
           removeRight = removablePoints right st w
           pointsToBeRemoved = nub (removeUp ++ removeDown ++ removeLeft ++ removeRight)
---          point' = if length removeUp == 1 then up else if length removeDown == 1 then down else if length removeLeft == 1 then left else right
---          (up', down', left', right') = getAdj point'
---          stone' = getOppositeStone stone
---          isKo = length ((removeDead up' stone' game) ++ (removeDead down' stone' game) ++ (removeDead left' stone' game) ++ (removeDead right' stone' game)) == 1
+          len = length pointsToBeRemoved
+          os = getOppositeStone st
+          -- check ko
+          (px, py) = if length removeUp == 1
+            then up
+            else if length removeDown == 1
+                 then down
+                 else if length removeLeft == 1
+                      then left else right
+          (up', down', left', right') = ((px,py+1), (px,py-1), (px-1,py), (px+1,py))
+          isKo = length ((removablePoints up' os w) ++ (removablePoints down' os w) ++ (removablePoints left' os w) ++ (removablePoints right' os w)) == 1
 
 -- returns a list of points in the group if the group is trapped
 removablePoints :: Position -> StoneState -> World -> [Maybe Position]
@@ -297,14 +321,16 @@ removePiece m position = addPiece m position Empty
 -- given a list of points which are candidate of being removed
 -- remove the stones if it is dead group
 removeStones :: World -> [Maybe Position] -> World
-removeStones w@(World _ _ _ _ _) [] = w
-removeStones w@(World _ _ _ _ _) (Nothing:_) = w
-removeStones (World e bowl stone m st) ((Just p):xs) = removeStones (World e bowl stone (removePiece m p) st) xs
+removeStones w [] = w
+removeStones w (Nothing:_) = w
+removeStones (World e bowl stone m st sb sw) ((Just p):xs) =
+  removeStones (World e bowl stone (removePiece m p) st sb sw) xs
 
 -- adds a stone to the point
 -- After playing the move, removes the captured points of the opposite stone if present
 playMove :: World -> Position -> StoneState -> World
-playMove w@(World _ _ _ b _) p st = removeGroups w {stones = [], board = addPiece b p st, lastMove = StoneMove p st} p os
+playMove w@(World _ _ _ b _ _ _) p st =
+  removeGroups w {stones = [], board = addPiece b p st, lastMove = StoneMove p st} p os
   where os = getOppositeStone st
 
 -- drop all the stones
